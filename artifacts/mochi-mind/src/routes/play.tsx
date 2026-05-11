@@ -36,7 +36,9 @@ function PlayPage() {
   const [validatorScore, setValidatorScore] = useState(0);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [revealFlash, setRevealFlash] = useState(false);
+  const [consensusElapsed, setConsensusElapsed] = useState(0);
   const tickRef = useRef<number | null>(null);
+  const consensusTickRef = useRef<number | null>(null);
 
   const stage = STAGES[stageIdx];
   const total = STAGES.length;
@@ -51,7 +53,27 @@ function PlayPage() {
     setValidatorSource(null);
     setRoundResult(null);
     setRevealFlash(false);
+    setConsensusElapsed(0);
+    if (consensusTickRef.current) window.clearInterval(consensusTickRef.current);
   }
+
+  // Count up seconds while waiting for on-chain consensus
+  useEffect(() => {
+    if (phase === "revealing" && validatorPicks === null) {
+      setConsensusElapsed(0);
+      consensusTickRef.current = window.setInterval(() => {
+        setConsensusElapsed((s) => s + 1);
+      }, 1000);
+    } else {
+      if (consensusTickRef.current) {
+        window.clearInterval(consensusTickRef.current);
+        consensusTickRef.current = null;
+      }
+    }
+    return () => {
+      if (consensusTickRef.current) window.clearInterval(consensusTickRef.current);
+    };
+  }, [phase, validatorPicks]);
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -75,11 +97,10 @@ function PlayPage() {
   }, [secondsLeft, phase]);
 
   useEffect(() => {
-    if (phase === "result") {
-      setRevealFlash(true);
-      const t = window.setTimeout(() => setRevealFlash(false), 600);
-      return () => window.clearTimeout(t);
-    }
+    if (phase !== "result") return;
+    setRevealFlash(true);
+    const t = window.setTimeout(() => setRevealFlash(false), 600);
+    return () => window.clearTimeout(t);
   }, [phase]);
 
   function togglePick(name: string) {
@@ -97,6 +118,11 @@ function PlayPage() {
     playLockIn();
     if (tickRef.current) window.clearInterval(tickRef.current);
 
+    // Immediately reveal so the validator panel shows "On-chain AI analyzing..."
+    // writeContract + GenLayer consensus can take 60–120 s on Studio.
+    setPhase("revealing");
+    playRevealWhoosh();
+
     const t0 = performance.now();
     const v = await validatorAnalyze(stage);
     const elapsed = Math.round(performance.now() - t0);
@@ -104,22 +130,19 @@ function PlayPage() {
     setValidatorFetchMs(elapsed);
     setValidatorSource(v.source);
 
+    // Brief pause so the validator chips animate in before result cards flip
     window.setTimeout(() => {
-      setPhase("revealing");
-      playRevealWhoosh();
-      window.setTimeout(() => {
-        const r = scoreRound(timedOut ? [] : playerPicks, v.picks, stage.correct);
-        setPlayerScore((s) => s + r.player);
-        setValidatorScore((s) => s + r.validator);
-        setRoundResult(r.result);
-        setPhase("result");
-        stage.options.forEach((_, i) => {
-          const isCorrect = stage.correct.includes(stage.options[i].name as never);
-          window.setTimeout(() => playCardChime(isCorrect, 0), i * 150 + 80);
-        });
-        window.setTimeout(() => playResultFanfare(r.result), stage.options.length * 150 + 480);
-      }, 1900);
-    }, 400);
+      const r = scoreRound(timedOut ? [] : playerPicks, v.picks, stage.correct);
+      setPlayerScore((s) => s + r.player);
+      setValidatorScore((s) => s + r.validator);
+      setRoundResult(r.result);
+      setPhase("result");
+      stage.options.forEach((_, i) => {
+        const isCorrect = stage.correct.includes(stage.options[i].name as never);
+        window.setTimeout(() => playCardChime(isCorrect, 0), i * 150 + 80);
+      });
+      window.setTimeout(() => playResultFanfare(r.result), stage.options.length * 150 + 480);
+    }, 900);
   }
 
   function next() {
@@ -360,6 +383,7 @@ function PlayPage() {
             fetchMs={validatorFetchMs}
             source={validatorSource}
             quote={stage.quote}
+            consensusElapsed={consensusElapsed}
           />
         </aside>
       </div>
@@ -529,7 +553,7 @@ function MochiArtCard({ stage, blurred }: { stage: Stage; blurred: boolean }) {
 // ─── Validator Panel ──────────────────────────────────────────────────────────
 
 function ValidatorPanel({
-  phase, picks, correct, result, playerPicks, fetchMs, source, quote,
+  phase, picks, correct, result, playerPicks, fetchMs, source, quote, consensusElapsed,
 }: {
   phase: Phase;
   picks: [string, string] | null;
@@ -539,6 +563,7 @@ function ValidatorPanel({
   fetchMs: number | null;
   source: "onchain" | "local-consensus" | null;
   quote?: string;
+  consensusElapsed: number;
 }) {
   return (
     <div className="rounded-2xl sm:rounded-3xl bg-card border-[3px] border-[color:var(--primary-deep)] shadow-card-chunky p-4 sm:p-5 lg:sticky lg:top-[88px]">
@@ -570,14 +595,36 @@ function ValidatorPanel({
         )}
 
         {phase === "revealing" && (
-          <motion.div key="thinking" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-sm">
-            <div className="flex items-center gap-2 mb-3 text-accent">
-              <Zap className="size-4 animate-pulse" />
-              <span className="font-semibold">On-chain AI analyzing…</span>
+          <motion.div key="thinking" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-sm space-y-3">
+            <div className="flex items-center gap-2 text-accent">
+              <Zap className="size-4 animate-pulse shrink-0" />
+              <span className="font-semibold">
+                {picks === null ? "AI consensus in progress…" : "Consensus reached!"}
+              </span>
             </div>
             <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
               <div className="h-full w-1/2 bg-gradient-primary animate-scan" />
             </div>
+            {picks === null && (
+              <div className="rounded-xl border-2 border-accent/30 bg-accent/5 p-3 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] font-extrabold uppercase tracking-widest text-accent">
+                  <span>GenLayer Studio · On-Chain</span>
+                  <span className="tabular-nums">{String(Math.floor(consensusElapsed / 60)).padStart(2,"0")}:{String(consensusElapsed % 60).padStart(2,"0")}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  5 AI validators are independently reasoning and reaching consensus. This takes <span className="font-bold text-accent">1–2 minutes</span> on-chain.
+                </p>
+                <div className="flex gap-1 mt-1">
+                  {[0,1,2,3,4].map((i) => (
+                    <div
+                      key={i}
+                      className="h-1.5 flex-1 rounded-full bg-accent/40 animate-pulse"
+                      style={{ animationDelay: `${i * 200}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 

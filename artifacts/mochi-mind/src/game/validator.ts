@@ -1,7 +1,20 @@
 // MochiMind — Validator AI powered by GenLayer Studio on-chain AI.
+//
 // Contract: 0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac (GenLayer Studio)
+//
+// WHY writeContract, not readContract:
+//   select_dominant_colors() calls gl.nondet.exec_prompt() internally.
+//   Non-deterministic operations require the full GenLayer consensus round
+//   (multiple AI validators must agree). A plain gen_call / readContract
+//   cannot run the LLM validators — it fails with "execution failed".
+//   Solution:
+//     1. writeContract → submit_pick()  (triggers AI consensus)
+//     2. waitForTransactionReceipt     (wait for FINALIZED consensus)
+//     3. readContract → get_last_result() (deterministic storage read)
+//
 // Spender wallet covers gas so players never need a wallet.
-// Falls back to local 3-validator consensus ONLY if Studio is unreachable.
+// Falls back to local 3-validator consensus ONLY if Studio is unreachable
+// or the transaction times out.
 
 import type { Address } from "viem";
 import type { Stage } from "./stages";
@@ -74,61 +87,65 @@ export function validatorAnalyzeLocal(stage: Stage): ValidatorPick {
   };
 }
 
-// ─── GenLayer Studio On-Chain Validation ────────────────────────────────────
+// ─── GenLayer Studio On-Chain Validation ─────────────────────────────────────
 
-/** Build a genlayer-js client connected to GenLayer Studio. */
+/**
+ * Build a genlayer-js client using the spender account.
+ * createAccount() from genlayer-js creates a viem-compatible local account.
+ */
 async function buildClient() {
-  const [{ createClient }, { studionet }] = await Promise.all([
+  if (!SPENDER_PK) {
+    throw new Error(
+      "VITE_SPENDER_PRIVATE_KEY is not set. Cannot call on-chain contract.",
+    );
+  }
+  const [{ createClient, createAccount }, { studionet }] = await Promise.all([
     import("genlayer-js"),
     import("genlayer-js/chains"),
   ]);
-
-  if (SPENDER_PK) {
-    const { privateKeyToAccount } = await import("viem/accounts");
-    const account = privateKeyToAccount(SPENDER_PK);
-    return createClient({ chain: studionet, account });
-  }
-  // No private key — try read-only (may fail for AI contracts that require gas)
-  return createClient({ chain: studionet });
+  const account = createAccount(SPENDER_PK);
+  return createClient({ chain: studionet, account });
 }
 
-/** Extract color picks from whatever readContract returns (Map, object, or array). */
-function extractResult(result: unknown): { colors: string[]; reasoning?: string } {
-  if (!result) throw new Error("Contract returned null/undefined");
+/**
+ * Parse whatever readContract returns for get_last_result:
+ * Could be a string (JSON), a Map, or a plain object.
+ */
+function parseLastResult(raw: unknown): { colors: string[]; reasoning?: string } {
+  let str: string;
 
-  if (result instanceof Map) {
-    const colors =
-      (result.get("final_colors") as string[] | undefined) ??
-      (result.get("colors") as string[] | undefined) ??
-      [];
-    const reasoning =
-      (result.get("consensus_reasoning") as string | undefined) ??
-      (result.get("reasoning") as string | undefined);
-    return { colors, reasoning };
+  if (typeof raw === "string") {
+    str = raw;
+  } else if (raw instanceof Map) {
+    str = (raw.get("last_result") as string | undefined) ?? JSON.stringify(Object.fromEntries(raw));
+  } else if (raw && typeof raw === "object") {
+    // Maybe already decoded as object
+    const r = raw as Record<string, unknown>;
+    if (r["final_colors"]) {
+      return {
+        colors: r["final_colors"] as string[],
+        reasoning: r["consensus_reasoning"] as string | undefined,
+      };
+    }
+    str = JSON.stringify(raw);
+  } else {
+    throw new Error(`Unexpected get_last_result type: ${typeof raw}`);
   }
 
-  if (Array.isArray(result)) {
-    // Some contracts return [[color1, color2], reasoning]
-    if (Array.isArray(result[0])) return { colors: result[0] as string[] };
-    if (typeof result[0] === "string") return { colors: result as string[] };
-  }
-
-  if (typeof result === "object") {
-    const r = result as Record<string, unknown>;
-    const colors =
-      (r["final_colors"] as string[] | undefined) ??
-      (r["colors"] as string[] | undefined) ??
-      [];
-    const reasoning =
-      (r["consensus_reasoning"] as string | undefined) ??
-      (r["reasoning"] as string | undefined);
-    return { colors, reasoning };
-  }
-
-  throw new Error(`Unexpected contract result type: ${typeof result}`);
+  // Parse JSON string
+  const parsed: Record<string, unknown> = JSON.parse(str);
+  const colors =
+    (parsed["final_colors"] as string[] | undefined) ??
+    (parsed["colors"] as string[] | undefined) ??
+    [];
+  const reasoning =
+    (parsed["consensus_reasoning"] as string | undefined) ??
+    (parsed["reasoning"] as string | undefined);
+  return { colors, reasoning };
 }
 
 async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
+  // Build argument arrays for submit_pick(stage_id, candidate_colors, dominance_scores, zone_weights)
   const candidate_colors = stage.options.map((o) => o.name);
   const dominance_scores: Record<string, number> = {};
   for (const opt of stage.options) {
@@ -136,22 +153,51 @@ async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
   }
   const zone_weights: Record<string, Record<string, number>> = {};
 
+  const { TransactionStatus, ExecutionResult } = await import("genlayer-js/types");
   const client = await buildClient();
 
-  // readContract — genlayer-js handles ABI encoding/decoding automatically
+  // Step 1 — submit_pick goes through full GenLayer AI consensus
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const txHash = await (client as any).writeContract({
+    address: VALIDATOR_CONTRACT_ADDRESS,
+    functionName: "submit_pick",
+    args: [BigInt(stage.id), candidate_colors, dominance_scores, zone_weights],
+  });
+
+  console.info(
+    `[MochiMind] submit_pick tx submitted  stage=${stage.id}  hash=${txHash}`,
+  );
+
+  // Step 2 — wait for GenLayer consensus (5 AI validators must agree)
+  // interval: 3 s, retries: 80 → up to ~4 min before giving up
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const receipt = await (client as any).waitForTransactionReceipt({
+    hash: txHash,
+    status: TransactionStatus.FINALIZED,
+    interval: 3000,
+    retries: 80,
+  });
+
+  // Step 3 — check execution didn't error
+  if (receipt.txExecutionResultName === ExecutionResult.FINISHED_WITH_ERROR) {
+    throw new Error(
+      `Contract execution failed for stage ${stage.id}. receipt=${JSON.stringify(receipt.txExecutionResultName)}`,
+    );
+  }
+
+  // Step 4 — read the stored JSON result (purely deterministic — no AI calls)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawResult = await (client as any).readContract({
     address: VALIDATOR_CONTRACT_ADDRESS,
-    functionName: "select_dominant_colors",
-    args: [candidate_colors, dominance_scores, zone_weights],
-    stateStatus: "accepted",
+    functionName: "get_last_result",
+    args: [],
   });
 
-  const { colors, reasoning } = extractResult(rawResult);
+  const { colors, reasoning } = parseLastResult(rawResult);
 
   if (!Array.isArray(colors) || colors.length < 2) {
     throw new Error(
-      `Contract returned fewer than 2 colors. Got: ${JSON.stringify(colors)}`,
+      `Contract returned fewer than 2 colors from get_last_result. Got: ${JSON.stringify(colors)}`,
     );
   }
 
@@ -168,7 +214,11 @@ function shortError(err: unknown): string {
   const e = err as Record<string, unknown>;
   const m = e["shortMessage"] ?? e["details"] ?? e["message"] ?? e["cause"];
   if (typeof m === "string" && m) return m.replace(/\s+/g, " ").substring(0, 200);
-  try { return JSON.stringify(err).substring(0, 200); } catch { return String(err).substring(0, 200); }
+  try {
+    return JSON.stringify(err).substring(0, 200);
+  } catch {
+    return String(err).substring(0, 200);
+  }
 }
 
 export async function validatorAnalyze(stage: Stage): Promise<ValidatorPick> {
