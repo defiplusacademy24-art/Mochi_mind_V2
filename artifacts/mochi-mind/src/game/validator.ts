@@ -1,17 +1,18 @@
-// Validator AI logic — calls the GenLayer Intelligent Contract on Bradbury testnet.
-// Contract: 0x5647DB24B53fB34e4d9EF5Cd69CcD951e40C54D0 (v0.2.16)
+// MochiMind — Validator AI powered by GenLayer Studio on-chain AI.
+// Contract: 0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac (GenLayer Studio)
+// Spender wallet covers gas so players never need a wallet.
+// Falls back to local 3-validator consensus ONLY if Studio is unreachable.
 
-import { abi } from "genlayer-js";
-import { toHex, toRlp, fromHex } from "viem";
 import type { Address } from "viem";
-
 import type { Stage } from "./stages";
 
 export const VALIDATOR_CONTRACT_ADDRESS: Address =
-  "0x5647DB24B53fB34e4d9EF5Cd69CcD951e40C54D0";
+  (import.meta.env.VITE_STUDIO_CONTRACT as Address | undefined) ??
+  "0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac";
 
-const BRADBURY_RPC = "https://rpc-bradbury.genlayer.com";
-const NULL_ADDRESS = "0x0000000000000000000000000000000000000000";
+const SPENDER_PK = import.meta.env.VITE_SPENDER_PRIVATE_KEY as
+  | `0x${string}`
+  | undefined;
 
 export type ValidatorPick = {
   picks: [string, string];
@@ -21,6 +22,8 @@ export type ValidatorPick = {
   validators?: Array<{ name: string; colors: string[]; confidence: number }>;
 };
 
+// ─── Local Consensus Fallback ─────────────────────────────────────────────────
+
 function runSimulatedValidator(
   name: string,
   colors: string[],
@@ -28,7 +31,6 @@ function runSimulatedValidator(
   strategy: "visual" | "perceived" | "identity",
 ): { name: string; colors: string[]; confidence: number } {
   const scored: Record<string, number> = {};
-
   for (const c of colors) {
     const base = baseScores[c] ?? 10;
     let score = base;
@@ -41,16 +43,12 @@ function runSimulatedValidator(
     }
     scored[c] = Math.max(1, score);
   }
-
   const ranked = Object.entries(scored)
     .sort(([, a], [, b]) => b - a)
     .map(([c]) => c);
-
   const vals = Object.values(scored).sort((a, b) => b - a);
   const gap = vals.length >= 3 ? ((vals[1] - vals[2]) / vals[1]) * 100 : 75;
-  const confidence = Math.min(99, Math.max(40, Math.round(gap)));
-
-  return { name, colors: ranked.slice(0, 2), confidence };
+  return { name, colors: ranked.slice(0, 2), confidence: Math.min(99, Math.max(40, Math.round(gap))) };
 }
 
 export function validatorAnalyzeLocal(stage: Stage): ValidatorPick {
@@ -59,21 +57,14 @@ export function validatorAnalyzeLocal(stage: Stage): ValidatorPick {
   for (const opt of stage.options) {
     baseScores[opt.name] = Math.round(stage.weights[opt.name] ?? 10);
   }
-
   const vision = runSimulatedValidator("Vision Validator", colors, baseScores, "visual");
   const perception = runSimulatedValidator("Perception Validator", colors, baseScores, "perceived");
   const identity = runSimulatedValidator("Identity Validator", colors, baseScores, "identity");
-
   const scoreMap: Record<string, number> = {};
   for (const v of [vision, perception, identity]) {
-    for (const c of v.colors) {
-      scoreMap[c] = (scoreMap[c] ?? 0) + v.confidence;
-    }
+    for (const c of v.colors) scoreMap[c] = (scoreMap[c] ?? 0) + v.confidence;
   }
-  const ranked = Object.entries(scoreMap)
-    .sort(([, a], [, b]) => b - a)
-    .map(([c]) => c);
-
+  const ranked = Object.entries(scoreMap).sort(([, a], [, b]) => b - a).map(([c]) => c);
   return {
     picks: [ranked[0], ranked[1]],
     scores: baseScores,
@@ -81,6 +72,60 @@ export function validatorAnalyzeLocal(stage: Stage): ValidatorPick {
     reasoning: "Local AI consensus via 3 simulated validators (Vision, Perception, Identity).",
     validators: [vision, perception, identity],
   };
+}
+
+// ─── GenLayer Studio On-Chain Validation ────────────────────────────────────
+
+/** Build a genlayer-js client connected to GenLayer Studio. */
+async function buildClient() {
+  const [{ createClient }, { studionet }] = await Promise.all([
+    import("genlayer-js"),
+    import("genlayer-js/chains"),
+  ]);
+
+  if (SPENDER_PK) {
+    const { privateKeyToAccount } = await import("viem/accounts");
+    const account = privateKeyToAccount(SPENDER_PK);
+    return createClient({ chain: studionet, account });
+  }
+  // No private key — try read-only (may fail for AI contracts that require gas)
+  return createClient({ chain: studionet });
+}
+
+/** Extract color picks from whatever readContract returns (Map, object, or array). */
+function extractResult(result: unknown): { colors: string[]; reasoning?: string } {
+  if (!result) throw new Error("Contract returned null/undefined");
+
+  if (result instanceof Map) {
+    const colors =
+      (result.get("final_colors") as string[] | undefined) ??
+      (result.get("colors") as string[] | undefined) ??
+      [];
+    const reasoning =
+      (result.get("consensus_reasoning") as string | undefined) ??
+      (result.get("reasoning") as string | undefined);
+    return { colors, reasoning };
+  }
+
+  if (Array.isArray(result)) {
+    // Some contracts return [[color1, color2], reasoning]
+    if (Array.isArray(result[0])) return { colors: result[0] as string[] };
+    if (typeof result[0] === "string") return { colors: result as string[] };
+  }
+
+  if (typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    const colors =
+      (r["final_colors"] as string[] | undefined) ??
+      (r["colors"] as string[] | undefined) ??
+      [];
+    const reasoning =
+      (r["consensus_reasoning"] as string | undefined) ??
+      (r["reasoning"] as string | undefined);
+    return { colors, reasoning };
+  }
+
+  throw new Error(`Unexpected contract result type: ${typeof result}`);
 }
 
 async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
@@ -91,93 +136,22 @@ async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
   }
   const zone_weights: Record<string, Record<string, number>> = {};
 
-  const { encode, decode, makeCalldataObject } = abi.calldata;
-  const calldataObj = makeCalldataObject(
-    "select_dominant_colors",
-    [candidate_colors, dominance_scores, zone_weights],
-    {},
-  );
-  const encodedBytes: Uint8Array = encode(calldataObj);
-  const serialized: `0x${string}` = toRlp([toHex(encodedBytes), toHex(false)]);
+  const client = await buildClient();
 
-  const response = await fetch(BRADBURY_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "gen_call",
-      params: [
-        {
-          type: "read",
-          to: VALIDATOR_CONTRACT_ADDRESS,
-          from: NULL_ADDRESS,
-          data: serialized,
-          transaction_hash_variant: "latest-nonfinal",
-        },
-      ],
-      id: Date.now(),
-    }),
-    signal: AbortSignal.timeout(45_000),
+  // readContract — genlayer-js handles ABI encoding/decoding automatically
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawResult = await (client as any).readContract({
+    address: VALIDATOR_CONTRACT_ADDRESS,
+    functionName: "select_dominant_colors",
+    args: [candidate_colors, dominance_scores, zone_weights],
+    stateStatus: "accepted",
   });
 
-  if (!response.ok) {
-    throw new Error(`Bradbury HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  const json = (await response.json()) as {
-    result?: string | { data: string; status?: { code: number; message?: string } };
-    error?: { code: number; message: string };
-  };
-
-  if (json.error) {
-    const msg = json.error.message
-      .replace(/ReturnData:\[\]uint8\{[^}]*\}/g, "ReturnData:[...]")
-      .replace(/GenVMLog:\[\].*$/gs, "")
-      .replace(/StorageProof:\[32\]uint8\{[^}]*\}/g, "")
-      .substring(0, 250);
-    throw new Error(`gen_call error ${json.error.code}: ${msg}`);
-  }
-
-  if (!json.result) {
-    throw new Error("gen_call returned null result");
-  }
-
-  let hexData: string;
-  if (typeof json.result === "string") {
-    hexData = json.result.startsWith("0x") ? json.result : `0x${json.result}`;
-  } else {
-    if (json.result.status && json.result.status.code !== 0) {
-      throw new Error(
-        `gen_call status error: ${json.result.status.message ?? json.result.status.code}`,
-      );
-    }
-    hexData = `0x${json.result.data}`;
-  }
-
-  const resultBytes = fromHex(hexData as `0x${string}`, "bytes");
-  const decoded = decode(resultBytes) as Map<string, unknown> | Record<string, unknown>;
-
-  function mapGet(key: string): unknown {
-    if (decoded instanceof Map) return decoded.get(key);
-    return (decoded as Record<string, unknown>)[key];
-  }
-
-  let colors = mapGet("final_colors") as string[] | undefined;
-  if (!Array.isArray(colors) || colors.length < 2) {
-    colors = mapGet("colors") as string[] | undefined;
-  }
-
-  const reasoning =
-    (mapGet("consensus_reasoning") as string | undefined) ??
-    (mapGet("reasoning") as string | undefined);
+  const { colors, reasoning } = extractResult(rawResult);
 
   if (!Array.isArray(colors) || colors.length < 2) {
     throw new Error(
-      `Contract returned no colors. Keys: ${
-        decoded instanceof Map
-          ? [...decoded.keys()].join(", ")
-          : Object.keys(decoded as object).join(", ")
-      }`,
+      `Contract returned fewer than 2 colors. Got: ${JSON.stringify(colors)}`,
     );
   }
 
@@ -189,33 +163,30 @@ async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
   };
 }
 
-function errorMsg(err: unknown): string {
+function shortError(err: unknown): string {
   if (!err) return "unknown";
-  if (typeof err === "string") return err;
   const e = err as Record<string, unknown>;
   const m = e["shortMessage"] ?? e["details"] ?? e["message"] ?? e["cause"];
-  if (typeof m === "string" && m) return m.substring(0, 200);
-  try {
-    const s = JSON.stringify(err);
-    if (s && s !== "{}") return s.substring(0, 200);
-  } catch {}
-  return String(err).substring(0, 200);
+  if (typeof m === "string" && m) return m.replace(/\s+/g, " ").substring(0, 200);
+  try { return JSON.stringify(err).substring(0, 200); } catch { return String(err).substring(0, 200); }
 }
 
 export async function validatorAnalyze(stage: Stage): Promise<ValidatorPick> {
   try {
     const result = await validatorAnalyzeOnChain(stage);
     console.info(
-      `[MochiValidator] on-chain ✓  stage=${stage.id}  picks=${result.picks.join(",")}`,
+      `[MochiMind] GenLayer Studio ✓  stage=${stage.id}  picks=${result.picks.join(",")}`,
     );
     return result;
   } catch (err) {
     console.warn(
-      `[MochiValidator] on-chain unavailable (stage ${stage.id}) → ${errorMsg(err)} — running local consensus`,
+      `[MochiMind] Studio unavailable (stage ${stage.id}) → ${shortError(err)} — running local consensus`,
     );
     return validatorAnalyzeLocal(stage);
   }
 }
+
+// ─── Scoring helpers ──────────────────────────────────────────────────────────
 
 export type RoundResult =
   | "perfect-match"

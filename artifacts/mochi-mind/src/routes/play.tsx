@@ -3,15 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ArrowRight, Brain, Check, Clock, Lock, RotateCcw, Sparkles, Trophy, Wifi, Zap } from "lucide-react";
+import {
+  ArrowRight, Brain, Check, Clock, Lock, RotateCcw,
+  Sparkles, Trophy, Wifi, Zap,
+} from "lucide-react";
 import { STAGES, TURN_SECONDS, type Stage } from "@/game/stages";
 import { endgameTitle, scoreRound, validatorAnalyze, type RoundResult } from "@/game/validator";
 import {
-  playCountdownBeep,
-  playLockIn,
-  playRevealWhoosh,
-  playCardChime,
-  playResultFanfare,
+  playCountdownBeep, playLockIn, playRevealWhoosh,
+  playCardChime, playResultFanfare,
 } from "@/game/sounds";
 import logo from "@/assets/logo.jpg";
 import { STAGE_IMAGES } from "@/assets/stages";
@@ -37,7 +37,6 @@ function PlayPage() {
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [revealFlash, setRevealFlash] = useState(false);
   const tickRef = useRef<number | null>(null);
-  const prevPhaseRef = useRef<Phase>("playing");
 
   const stage = STAGES[stageIdx];
   const total = STAGES.length;
@@ -52,7 +51,6 @@ function PlayPage() {
     setValidatorSource(null);
     setRoundResult(null);
     setRevealFlash(false);
-    prevPhaseRef.current = "playing";
   }
 
   useEffect(() => {
@@ -67,21 +65,16 @@ function PlayPage() {
         return s - 1;
       });
     }, 1000);
-    return () => {
-      if (tickRef.current) window.clearInterval(tickRef.current);
-    };
+    return () => { if (tickRef.current) window.clearInterval(tickRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stageIdx]);
 
   useEffect(() => {
     if (phase !== "playing") return;
-    if (secondsLeft <= 5 && secondsLeft > 0) {
-      playCountdownBeep(secondsLeft);
-    }
+    if (secondsLeft <= 5 && secondsLeft > 0) playCountdownBeep(secondsLeft);
   }, [secondsLeft, phase]);
 
   useEffect(() => {
-    prevPhaseRef.current = phase;
     if (phase === "result") {
       setRevealFlash(true);
       const t = window.setTimeout(() => setRevealFlash(false), 600);
@@ -92,8 +85,8 @@ function PlayPage() {
   function togglePick(name: string) {
     if (locked || phase !== "playing") return;
     setPlayerPicks((cur) => {
-      if (cur.length >= 2) return cur;
       if (cur.includes(name)) return cur.filter((c) => c !== name);
+      if (cur.length >= 2) return cur;
       return [...cur, name];
     });
   }
@@ -114,30 +107,23 @@ function PlayPage() {
     window.setTimeout(() => {
       setPhase("revealing");
       playRevealWhoosh();
-
       window.setTimeout(() => {
-        const finalPicks = timedOut ? playerPicks : playerPicks;
-        const r = scoreRound(finalPicks, v.picks, stage.correct);
+        const r = scoreRound(timedOut ? [] : playerPicks, v.picks, stage.correct);
         setPlayerScore((s) => s + r.player);
         setValidatorScore((s) => s + r.validator);
         setRoundResult(r.result);
         setPhase("result");
-
-        stage.options.forEach((opt, i) => {
-          const isCorrect = stage.correct.includes(opt.name as never);
+        stage.options.forEach((_, i) => {
+          const isCorrect = stage.correct.includes(stage.options[i].name as never);
           window.setTimeout(() => playCardChime(isCorrect, 0), i * 150 + 80);
         });
-
         window.setTimeout(() => playResultFanfare(r.result), stage.options.length * 150 + 480);
       }, 1900);
     }, 400);
   }
 
   function next() {
-    if (stageIdx + 1 >= total) {
-      setPhase("endgame");
-      return;
-    }
+    if (stageIdx + 1 >= total) { setPhase("endgame"); return; }
     setStageIdx((i) => i + 1);
     resetStage();
   }
@@ -166,6 +152,7 @@ function PlayPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {/* Flash overlay on reveal */}
       <AnimatePresence>
         {revealFlash && (
           <motion.div
@@ -180,43 +167,56 @@ function PlayPage() {
         )}
       </AnimatePresence>
 
-      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-xl border-b-[3px] border-[color:var(--primary-deep)]/30">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-          <Link to="/" className="flex items-center gap-2 shrink-0">
-            <img src={logo} alt="MochiMind logo" className="h-8 w-8 rounded-lg object-cover ring-2 ring-[color:var(--primary-deep)]" />
-            <span className="font-bold tracking-tight hidden sm:inline">MochiMind</span>
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-xl border-b-[3px] border-[color:var(--primary-deep)]/30">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2">
+          <Link to="/" className="flex items-center gap-1.5 shrink-0">
+            <img src={logo} alt="MochiMind" className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg object-cover ring-2 ring-[color:var(--primary-deep)]" />
+            <span className="font-bold tracking-tight text-sm hidden sm:inline">MochiMind</span>
           </Link>
-          <div className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm">
-            <ScorePill label="You" value={playerScore} accent="primary" />
-            <div className="text-primary font-black">vs</div>
-            <ScorePill label="AI" value={validatorScore} accent="accent" />
+
+          {/* Stage progress (mobile: centre; desktop: left-aligned) */}
+          <div className="flex-1 min-w-0 mx-2">
+            <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-1">
+              <span className="shrink-0">Stage {String(stage.id).padStart(2, "0")}/{total}</span>
+              <span className="truncate max-w-[120px] sm:max-w-none text-right">{stage.name}</span>
+            </div>
+            <Progress value={((stage.id - 1) / total) * 100} className="h-1" />
           </div>
-        </div>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.25em] text-muted-foreground mb-1.5">
-            <span>Stage {String(stage.id).padStart(2, "0")} / {total}</span>
-            <span>{stage.name}</span>
+
+          {/* Scores */}
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <ScorePill label="You" value={playerScore} />
+            <span className="text-primary font-black text-xs">vs</span>
+            <ScorePill label="AI" value={validatorScore} ai />
           </div>
-          <Progress value={((stage.id - 1) / total) * 100} className="h-1" />
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 grid lg:grid-cols-[1fr_320px] gap-6">
-        <section>
+      {/* ── Main layout ── */}
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-4 lg:space-y-0 lg:grid lg:grid-cols-[1fr_300px] lg:gap-6">
+
+        {/* LEFT — game area */}
+        <section className="space-y-3">
+          {/* Mochi art */}
           <MochiArtCard stage={stage} blurred={blurred} />
 
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className={`text-[10px] uppercase tracking-[0.3em] font-extrabold shrink-0 ${phase === "playing" ? "hint-blink" : "text-primary"}`}>Hint</span>
-              <p className={`text-sm italic truncate ${phase === "playing" ? "hint-blink" : "text-foreground/90"}`}>
+          {/* Hint + Timer row */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <span className={`text-[9px] sm:text-[10px] uppercase tracking-[0.25em] font-extrabold shrink-0 ${phase === "playing" ? "hint-blink" : "text-primary"}`}>
+                Hint
+              </span>
+              <p className={`text-xs sm:text-sm italic truncate ${phase === "playing" ? "hint-blink" : "text-foreground/90"}`}>
                 "{stage.hint}"
               </p>
             </div>
             <TimerChip seconds={secondsLeft} active={phase === "playing"} />
           </div>
 
-          <div className="mt-6">
-            <div className="text-xs uppercase tracking-[0.25em] text-primary font-extrabold mb-3">
+          {/* Color picker */}
+          <div>
+            <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-primary font-extrabold mb-2">
               Pick the 2 dominant colors
             </div>
 
@@ -226,7 +226,7 @@ function PlayPage() {
                   key="active-grid"
                   exit={{ opacity: 0, scale: 0.97 }}
                   transition={{ duration: 0.18 }}
-                  className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3"
                 >
                   {stage.options.map((opt) => {
                     const selected = playerPicks.includes(opt.name);
@@ -235,19 +235,21 @@ function PlayPage() {
                         key={opt.name}
                         onClick={() => togglePick(opt.name)}
                         disabled={locked}
-                        className={`group relative rounded-2xl p-4 border-[3px] transition-all duration-200 text-left bg-card
-                          ${selected ? "border-[color:var(--primary-deep)] shadow-chunky -translate-y-0.5" : "border-[color:var(--primary-deep)]/40 shadow-chunky-sm hover:-translate-y-0.5 hover:border-[color:var(--primary-deep)]"}
-                          ${locked ? "cursor-not-allowed opacity-90" : ""}`}
+                        className={`group relative rounded-2xl p-3 sm:p-4 border-[3px] transition-all duration-200 text-left bg-card
+                          ${selected
+                            ? "border-[color:var(--primary-deep)] shadow-chunky -translate-y-0.5"
+                            : "border-[color:var(--primary-deep)]/40 shadow-chunky-sm hover:-translate-y-0.5 hover:border-[color:var(--primary-deep)]"}
+                          ${locked ? "cursor-not-allowed opacity-90" : "cursor-pointer"}`}
                       >
                         <div
-                          className="h-16 sm:h-20 w-full rounded-xl mb-3 ring-2 ring-[color:var(--primary-deep)]/30"
+                          className="h-12 sm:h-16 w-full rounded-xl mb-2 sm:mb-3 ring-2 ring-[color:var(--primary-deep)]/30"
                           style={{ background: opt.hex }}
                         />
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-extrabold">{opt.name}</span>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs sm:text-sm font-extrabold truncate">{opt.name}</span>
                           {selected && (
-                            <span className="h-5 w-5 rounded-full bg-primary text-primary-foreground grid place-items-center border-2 border-[color:var(--primary-deep)]">
-                              <Check className="size-3" strokeWidth={3} />
+                            <span className="shrink-0 h-4 w-4 sm:h-5 sm:w-5 rounded-full bg-primary text-primary-foreground grid place-items-center border-2 border-[color:var(--primary-deep)]">
+                              <Check className="size-2.5 sm:size-3" strokeWidth={3} />
                             </span>
                           )}
                         </div>
@@ -260,7 +262,7 @@ function PlayPage() {
                   key="reveal-grid"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+                  className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3"
                 >
                   {stage.options.map((opt, i) => {
                     const isCorrect = stage.correct.includes(opt.name as never);
@@ -270,14 +272,9 @@ function PlayPage() {
                         key={opt.name}
                         initial={{ opacity: 0, rotateY: -90, scale: 0.8 }}
                         animate={{ opacity: 1, rotateY: 0, scale: 1 }}
-                        transition={{
-                          delay: i * 0.15,
-                          type: "spring",
-                          stiffness: 200,
-                          damping: 18,
-                        }}
+                        transition={{ delay: i * 0.15, type: "spring", stiffness: 200, damping: 18 }}
                         style={{ transformPerspective: 1200 }}
-                        className={`relative rounded-2xl p-4 border-[3px] text-left
+                        className={`relative rounded-2xl p-3 sm:p-4 border-[3px] text-left
                           ${isCorrect
                             ? "border-[color:var(--primary-deep)] shadow-chunky bg-primary/8"
                             : "border-[color:var(--primary-deep)]/30 bg-card shadow-chunky-sm opacity-75"}
@@ -293,13 +290,13 @@ function PlayPage() {
                           />
                         )}
                         <div
-                          className={`h-16 sm:h-20 w-full rounded-xl mb-3 ring-2 ${isCorrect ? "ring-[color:var(--primary-deep)]" : "ring-[color:var(--primary-deep)]/20"}`}
+                          className={`h-12 sm:h-16 w-full rounded-xl mb-2 sm:mb-3 ring-2 ${isCorrect ? "ring-[color:var(--primary-deep)]" : "ring-[color:var(--primary-deep)]/20"}`}
                           style={{ background: opt.hex }}
                         />
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-extrabold">{opt.name}</span>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs sm:text-sm font-extrabold truncate">{opt.name}</span>
                           {isCorrect && (
-                            <span className="text-[10px] uppercase tracking-widest text-primary font-extrabold">Correct</span>
+                            <span className="text-[8px] sm:text-[10px] uppercase tracking-widest text-primary font-extrabold shrink-0">✓</span>
                           )}
                         </div>
                         {isCorrect && <CardParticles hex={opt.hex} cardIndex={i} />}
@@ -310,36 +307,49 @@ function PlayPage() {
               )}
             </AnimatePresence>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              {!isResult && (
+            {/* Action row */}
+            <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              {!isResult ? (
                 locked ? (
-                  <Button variant="hero" size="lg" className="rounded-full opacity-60 cursor-not-allowed" disabled>
+                  <Button variant="hero" size="lg" className="rounded-full w-full sm:w-auto opacity-60 cursor-not-allowed" disabled>
                     <Lock className="size-4" /> Locked
                   </Button>
                 ) : (
                   <Button
                     variant="hero"
                     size="lg"
-                    className="rounded-full"
+                    className="rounded-full w-full sm:w-auto"
                     disabled={playerPicks.length !== 2}
                     onClick={() => handleLock(false)}
                   >
                     <Lock className="size-4" /> Lock In
                   </Button>
                 )
-              )}
-              {isResult && (
-                <Button variant="hero" size="lg" className="rounded-full" onClick={next}>
-                  {stageIdx + 1 >= total ? "See Final" : "Next Stage"} <ArrowRight className="size-4" />
+              ) : (
+                <Button
+                  variant="hero"
+                  size="lg"
+                  className="rounded-full w-full sm:w-auto"
+                  onClick={next}
+                >
+                  {stageIdx + 1 >= total ? "See Final Results" : "Next Stage"} <ArrowRight className="size-4" />
                 </Button>
               )}
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground text-center sm:text-left">
                 {playerPicks.length}/2 selected
               </span>
             </div>
           </div>
+
+          {/* Stage quote (mobile only, hidden on lg where panel shows it) */}
+          {stage.quote && isResult && (
+            <p className="lg:hidden text-center italic text-sm text-muted-foreground px-2 pt-1">
+              "{stage.quote}"
+            </p>
+          )}
         </section>
 
+        {/* RIGHT — Validator panel */}
         <aside>
           <ValidatorPanel
             phase={phase}
@@ -349,12 +359,15 @@ function PlayPage() {
             playerPicks={playerPicks}
             fetchMs={validatorFetchMs}
             source={validatorSource}
+            quote={stage.quote}
           />
         </aside>
       </div>
     </main>
   );
 }
+
+// ─── Card Particles ───────────────────────────────────────────────────────────
 
 function CardParticles({ hex, cardIndex }: { hex: string; cardIndex: number }) {
   const particles = useMemo(
@@ -372,40 +385,39 @@ function CardParticles({ hex, cardIndex }: { hex: string; cardIndex: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cardIndex],
   );
-
   return (
     <div className="absolute inset-0 pointer-events-none overflow-visible" aria-hidden>
       {particles.map((p, i) => (
         <div
           key={i}
           className="mochi-particle absolute top-1/2 left-1/2 rounded-full"
-          style={
-            {
-              "--tx": `${p.tx}px`,
-              "--ty": `${p.ty}px`,
-              width: p.size,
-              height: p.size,
-              background: hex,
-              opacity: 0,
-              animationDelay: `${p.delay}ms`,
-            } as React.CSSProperties
-          }
+          style={{
+            "--tx": `${p.tx}px`,
+            "--ty": `${p.ty}px`,
+            width: p.size,
+            height: p.size,
+            background: hex,
+            opacity: 0,
+            animationDelay: `${p.delay}ms`,
+          } as React.CSSProperties}
         />
       ))}
     </div>
   );
 }
 
-function ScorePill({ label, value, accent }: { label: string; value: number; accent: "primary" | "accent" }) {
+// ─── Score Pill ───────────────────────────────────────────────────────────────
+
+function ScorePill({ label, value, ai = false }: { label: string; value: number; ai?: boolean }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border-[3px] border-[color:var(--primary-deep)] shadow-chunky-sm">
-      <span className={`h-1.5 w-1.5 rounded-full ${accent === "primary" ? "bg-primary" : "bg-primary-glow"}`} />
-      <span className="text-muted-foreground font-bold">{label}</span>
+    <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-card border-[3px] border-[color:var(--primary-deep)] shadow-chunky-sm">
+      <span className={`h-1.5 w-1.5 rounded-full ${ai ? "bg-accent" : "bg-primary"}`} />
+      <span className="text-muted-foreground font-bold text-xs">{label}</span>
       <motion.span
         key={value}
         initial={{ scale: 1.4, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="font-black tabular-nums text-primary"
+        className="font-black tabular-nums text-primary text-xs sm:text-sm"
       >
         {value}
       </motion.span>
@@ -413,35 +425,28 @@ function ScorePill({ label, value, accent }: { label: string; value: number; acc
   );
 }
 
+// ─── Timer Chip ───────────────────────────────────────────────────────────────
+
 function TimerChip({ seconds, active }: { seconds: number; active: boolean }) {
   const danger = seconds <= 5;
   return (
     <div
-      key={seconds}
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-full border-[3px] text-xs tabular-nums font-extrabold shadow-chunky-sm bg-card
+      className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border-[3px] text-xs tabular-nums font-extrabold shadow-chunky-sm bg-card shrink-0
         ${danger ? "border-destructive text-destructive" : "border-[color:var(--primary-deep)] text-primary"}
         ${active ? "timer-tick" : "opacity-60"}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${danger ? "bg-destructive animate-pulse" : "bg-primary"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${danger ? "bg-destructive animate-pulse" : "bg-primary"}`} />
       {String(seconds).padStart(2, "0")}s
     </div>
   );
 }
 
+// ─── Validator Fetch Chip ─────────────────────────────────────────────────────
+
 function ValidatorFetchChip({
-  phase,
-  fetchMs,
-  source,
-}: {
-  phase: Phase;
-  fetchMs: number | null;
-  source: "onchain" | "local-consensus" | null;
-}) {
+  phase, fetchMs, source,
+}: { phase: Phase; fetchMs: number | null; source: "onchain" | "local-consensus" | null }) {
   if (phase === "playing") return null;
-
-  const isRevealing = phase === "revealing" && fetchMs === null;
-  const isLocalConsensus = source === "local-consensus";
-
   return (
     <AnimatePresence>
       <motion.div
@@ -449,47 +454,38 @@ function ValidatorFetchChip({
         initial={{ opacity: 0, y: -6, height: 0 }}
         animate={{ opacity: 1, y: 0, height: "auto" }}
         exit={{ opacity: 0, height: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="overflow-hidden mb-4"
+        transition={{ duration: 0.35 }}
+        className="overflow-hidden mb-3"
       >
-        {isRevealing ? (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-[2px] border-[color:var(--primary-deep)]/30 bg-secondary text-[11px] font-bold text-muted-foreground w-fit">
+        {phase === "revealing" && fetchMs === null ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 border-[color:var(--primary-deep)]/30 bg-secondary text-[11px] font-bold text-muted-foreground w-fit">
             <Clock className="size-3 animate-pulse" />
             Consulting AI Validators…
           </div>
-        ) : isLocalConsensus ? (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-[2px] border-violet-400/60 bg-violet-50 text-[11px] font-extrabold text-violet-700 w-fit">
+        ) : source === "local-consensus" ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 border-violet-400/60 bg-violet-50 text-[11px] font-extrabold text-violet-700 w-fit">
             <Brain className="size-3" />
             3 AI Validators · Simulated
-            {fetchMs !== null && (
-              <span className="ml-1 opacity-70 font-bold">{fetchMs}ms</span>
-            )}
+            {fetchMs !== null && <span className="ml-1 opacity-70">{fetchMs}ms</span>}
           </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-[2px] border-emerald-400/60 bg-emerald-50 text-[11px] font-extrabold text-emerald-700 w-fit">
+        ) : source === "onchain" ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border-2 border-emerald-400/60 bg-emerald-50 text-[11px] font-extrabold text-emerald-700 w-fit">
             <Wifi className="size-3" />
-            On-chain · Bradbury
-            {fetchMs !== null && (
-              <span className="ml-1 opacity-70 font-bold">{fetchMs}ms</span>
-            )}
+            GenLayer Studio · On-Chain
+            {fetchMs !== null && <span className="ml-1 opacity-70">{fetchMs}ms</span>}
           </div>
-        )}
+        ) : null}
       </motion.div>
     </AnimatePresence>
   );
 }
 
+// ─── Mochi Art Card ───────────────────────────────────────────────────────────
+
 function MochiArtCard({ stage, blurred }: { stage: Stage; blurred: boolean }) {
   const stageImg = STAGE_IMAGES[stage.id];
-
   return (
-    <div className="relative aspect-[16/10] sm:aspect-[16/9] rounded-3xl overflow-hidden border-[4px] border-[color:var(--primary-deep)] bg-secondary shadow-card-chunky">
-      <motion.div
-        initial={{ opacity: 1 }}
-        animate={{ opacity: blurred ? 1 : 0 }}
-        transition={{ duration: 0.6 }}
-        className="absolute inset-0 bg-secondary/60"
-      />
+    <div className="relative aspect-[4/3] sm:aspect-[16/9] rounded-2xl sm:rounded-3xl overflow-hidden border-[4px] border-[color:var(--primary-deep)] bg-secondary shadow-card-chunky">
       <motion.div
         key={stage.id}
         initial={{ filter: "blur(56px) saturate(0.6)", scale: 1.04 }}
@@ -516,30 +512,24 @@ function MochiArtCard({ stage, blurred }: { stage: Stage; blurred: boolean }) {
           />
         )}
       </motion.div>
-
       {blurred && (
-        <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent animate-scan z-20 shadow-glow" />
+        <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-accent to-transparent animate-scan z-20 shadow-glow" />
       )}
-
-      <div className="absolute top-3 left-3 text-[10px] uppercase tracking-[0.3em] text-primary-foreground font-extrabold flex items-center gap-2 z-20 px-2.5 py-1 rounded-full bg-primary border-2 border-[color:var(--primary-deep)]">
+      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-primary-foreground font-extrabold flex items-center gap-1.5 z-20 px-2 py-1 rounded-full bg-primary border-2 border-[color:var(--primary-deep)]">
         <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground animate-pulse" />
         Stage {String(stage.id).padStart(2, "0")}
       </div>
-      <div className="absolute bottom-3 right-3 text-[10px] uppercase tracking-[0.3em] text-primary-foreground font-extrabold z-20 px-2.5 py-1 rounded-full bg-primary border-2 border-[color:var(--primary-deep)]">
-        Difficulty {"●".repeat(stage.difficulty)}{"○".repeat(5 - stage.difficulty)}
+      <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 text-[9px] sm:text-[10px] uppercase tracking-[0.25em] text-primary-foreground font-extrabold z-20 px-2 py-1 rounded-full bg-primary border-2 border-[color:var(--primary-deep)]">
+        {"●".repeat(stage.difficulty)}{"○".repeat(5 - stage.difficulty)}
       </div>
     </div>
   );
 }
 
+// ─── Validator Panel ──────────────────────────────────────────────────────────
+
 function ValidatorPanel({
-  phase,
-  picks,
-  correct,
-  result,
-  playerPicks,
-  fetchMs,
-  source,
+  phase, picks, correct, result, playerPicks, fetchMs, source, quote,
 }: {
   phase: Phase;
   picks: [string, string] | null;
@@ -548,17 +538,18 @@ function ValidatorPanel({
   playerPicks: string[];
   fetchMs: number | null;
   source: "onchain" | "local-consensus" | null;
+  quote?: string;
 }) {
   return (
-    <div className="rounded-3xl bg-card border-[3px] border-[color:var(--primary-deep)] shadow-card-chunky p-5 sticky top-32">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="h-10 w-10 rounded-xl bg-primary border-2 border-[color:var(--primary-deep)] grid place-items-center">
-          <Brain className="size-5 text-primary-foreground" strokeWidth={2.5} />
+    <div className="rounded-2xl sm:rounded-3xl bg-card border-[3px] border-[color:var(--primary-deep)] shadow-card-chunky p-4 sm:p-5 lg:sticky lg:top-[88px]">
+      <div className="flex items-center gap-2 mb-3 sm:mb-4">
+        <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-primary border-2 border-[color:var(--primary-deep)] grid place-items-center shrink-0">
+          <Brain className="size-4 sm:size-5 text-primary-foreground" strokeWidth={2.5} />
         </div>
         <div>
           <div className="text-sm font-extrabold">Validator AI</div>
-          <div className="text-[10px] uppercase tracking-[0.25em] text-primary font-bold">
-            GenLayer-aligned
+          <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-primary font-bold whitespace-nowrap">
+            GenLayer Studio · On-Chain
           </div>
         </div>
       </div>
@@ -567,34 +558,22 @@ function ValidatorPanel({
 
       <AnimatePresence mode="wait">
         {phase === "playing" && (
-          <motion.div
-            key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-sm text-muted-foreground"
-          >
+          <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm text-muted-foreground">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="size-4 text-accent" />
               <span>Standing by…</span>
             </div>
             <p className="text-xs leading-relaxed">
-              Lock in your two picks. The Validator will reason in parallel and reveal its answer.
+              Lock in your two picks. The Validator will reason on-chain via GenLayer Studio and reveal its answer.
             </p>
           </motion.div>
         )}
 
         {phase === "revealing" && (
-          <motion.div
-            key="thinking"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="text-sm"
-          >
+          <motion.div key="thinking" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-sm">
             <div className="flex items-center gap-2 mb-3 text-accent">
               <Zap className="size-4 animate-pulse" />
-              <span className="font-semibold">Analyzing dominance…</span>
+              <span className="font-semibold">On-chain AI analyzing…</span>
             </div>
             <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
               <div className="h-full w-1/2 bg-gradient-primary animate-scan" />
@@ -603,22 +582,24 @@ function ValidatorPanel({
         )}
 
         {phase === "result" && picks && result && (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-4 text-sm"
-          >
+          <motion.div key="result" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
             <ResultBadge result={result} />
             <Row label="Your pick" colors={playerPicks} correct={correct} />
             <Row label="AI pick" colors={picks} correct={correct} />
             <Row label="Truth" colors={correct} correct={correct} highlight />
+            {quote && (
+              <p className="hidden lg:block text-xs italic text-muted-foreground pt-1 border-t border-[color:var(--primary-deep)]/20">
+                "{quote}"
+              </p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
 }
+
+// ─── Result Badge ─────────────────────────────────────────────────────────────
 
 function ResultBadge({ result }: { result: RoundResult }) {
   const map: Record<RoundResult, { label: string; className: string }> = {
@@ -633,35 +614,31 @@ function ResultBadge({ result }: { result: RoundResult }) {
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: "spring", stiffness: 280, damping: 18 }}
-      className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-extrabold border-[3px] border-[color:var(--primary-deep)] shadow-chunky-sm ${m.className}`}
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-extrabold border-[3px] border-[color:var(--primary-deep)] shadow-chunky-sm ${m.className}`}
     >
       <Sparkles className="size-3" /> {m.label}
     </motion.div>
   );
 }
 
-function Row({
-  label,
-  colors,
-  correct,
-  highlight = false,
-}: {
+// ─── Comparison Row ───────────────────────────────────────────────────────────
+
+function Row({ label, colors, correct, highlight = false }: {
   label: string;
   colors: string[];
   correct: [string, string];
   highlight?: boolean;
 }) {
   return (
-    <div className={`rounded-2xl border-[3px] border-[color:var(--primary-deep)]/40 p-3 ${highlight ? "bg-primary/10 border-[color:var(--primary-deep)]" : "bg-card"}`}>
-      <div className="text-[10px] uppercase tracking-[0.25em] text-primary font-extrabold mb-2">{label}</div>
-      <div className="flex flex-wrap gap-2">
-        {colors.length === 0 && <span className="text-xs text-muted-foreground">— none —</span>}
+    <div className={`rounded-xl sm:rounded-2xl border-[3px] border-[color:var(--primary-deep)]/40 p-2.5 sm:p-3 ${highlight ? "bg-primary/10 border-[color:var(--primary-deep)]" : "bg-card"}`}>
+      <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-primary font-extrabold mb-1.5">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {colors.length === 0 && <span className="text-xs text-muted-foreground">— timed out —</span>}
         {colors.map((c) => {
           const ok = correct.includes(c as never);
           return (
-            <span
-              key={c}
-              className={`text-xs px-2.5 py-1 rounded-lg border-2 font-bold ${ok ? "border-[color:var(--primary-deep)] bg-secondary text-primary" : "border-destructive/60 text-foreground/80"}`}
+            <span key={c}
+              className={`text-xs px-2 py-0.5 rounded-lg border-2 font-bold ${ok ? "border-[color:var(--primary-deep)] bg-secondary text-primary" : "border-destructive/60 text-foreground/80"}`}
             >
               {c}
             </span>
@@ -672,12 +649,10 @@ function Row({
   );
 }
 
+// ─── Endgame Screen ───────────────────────────────────────────────────────────
+
 function EndgameScreen({
-  playerScore,
-  validatorScore,
-  total,
-  onRestart,
-  onHome,
+  playerScore, validatorScore, total, onRestart, onHome,
 }: {
   playerScore: number;
   validatorScore: number;
@@ -686,47 +661,46 @@ function EndgameScreen({
   onHome: () => void;
 }) {
   const title = endgameTitle(playerScore, validatorScore, total);
-
   return (
-    <main className="min-h-screen bg-background text-foreground grid place-items-center px-6 py-20">
+    <main className="min-h-screen bg-background text-foreground grid place-items-center px-4 py-16 sm:py-20">
       <div className="absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 h-[500px] w-[500px] rounded-full bg-primary/30 blur-[160px]" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 h-[400px] w-[400px] rounded-full bg-primary/30 blur-[160px]" />
       </div>
       <motion.div
         initial={{ opacity: 0, y: 30, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-        className="max-w-xl w-full text-center bg-card border-[3px] border-[color:var(--primary-deep)] rounded-3xl p-10 shadow-card-chunky"
+        className="max-w-md w-full text-center bg-card border-[3px] border-[color:var(--primary-deep)] rounded-3xl p-6 sm:p-10 shadow-card-chunky"
       >
-        <div className="mx-auto h-20 w-20 rounded-2xl bg-primary border-[3px] border-[color:var(--primary-deep)] grid place-items-center shadow-chunky-sm mb-6">
-          <Trophy className="size-10 text-primary-foreground" strokeWidth={2.5} />
+        <div className="mx-auto h-16 w-16 sm:h-20 sm:w-20 rounded-2xl bg-primary border-[3px] border-[color:var(--primary-deep)] grid place-items-center shadow-chunky-sm mb-5 sm:mb-6">
+          <Trophy className="size-8 sm:size-10 text-primary-foreground" strokeWidth={2.5} />
         </div>
-        <div className="text-xs uppercase tracking-[0.3em] text-primary font-extrabold mb-3">Endgame</div>
-        <h1 className="text-4xl sm:text-5xl font-black tracking-tight mb-4">
+        <div className="text-[10px] uppercase tracking-[0.3em] text-primary font-extrabold mb-2">Endgame</div>
+        <h1 className="text-3xl sm:text-5xl font-black tracking-tight mb-3 sm:mb-4">
           <span className="text-gradient">{title}</span>
         </h1>
-        <p className="text-foreground/90 italic mb-8">
+        <p className="text-foreground/90 italic mb-6 sm:mb-8 text-sm sm:text-base">
           "My true colors were always Purple and White."
         </p>
 
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          <div className="rounded-2xl border-[3px] border-[color:var(--primary-deep)] p-5 bg-secondary shadow-chunky-sm">
-            <div className="text-[10px] uppercase tracking-[0.25em] text-primary font-extrabold mb-1">You</div>
-            <div className="text-4xl font-black tabular-nums text-primary">{playerScore}</div>
-            <div className="text-xs text-muted-foreground font-bold">of {total}</div>
-          </div>
-          <div className="rounded-2xl border-[3px] border-[color:var(--primary-deep)] p-5 bg-secondary shadow-chunky-sm">
-            <div className="text-[10px] uppercase tracking-[0.25em] text-primary font-extrabold mb-1">Validator AI</div>
-            <div className="text-4xl font-black tabular-nums text-primary">{validatorScore}</div>
-            <div className="text-xs text-muted-foreground font-bold">of {total}</div>
-          </div>
+        <div className="grid grid-cols-2 gap-3 mb-6 sm:mb-8">
+          {[
+            { label: "You", value: playerScore },
+            { label: "Validator AI", value: validatorScore },
+          ].map((s) => (
+            <div key={s.label} className="rounded-2xl border-[3px] border-[color:var(--primary-deep)] p-4 sm:p-5 bg-secondary shadow-chunky-sm">
+              <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-primary font-extrabold mb-1">{s.label}</div>
+              <div className="text-3xl sm:text-4xl font-black tabular-nums text-primary">{s.value}</div>
+              <div className="text-xs text-muted-foreground font-bold">of {total}</div>
+            </div>
+          ))}
         </div>
 
-        <div className="flex flex-wrap justify-center gap-3">
-          <Button variant="hero" size="lg" className="rounded-full" onClick={onRestart}>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
+          <Button variant="hero" size="lg" className="rounded-full w-full sm:w-auto" onClick={onRestart}>
             <RotateCcw className="size-4" /> Play Again
           </Button>
-          <Button variant="glass" size="lg" className="rounded-full" onClick={onHome}>
+          <Button variant="glass" size="lg" className="rounded-full w-full sm:w-auto" onClick={onHome}>
             Home
           </Button>
         </div>

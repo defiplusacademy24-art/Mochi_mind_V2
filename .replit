@@ -30,3 +30,9 @@ externalPort = 8081
 [[ports]]
 localPort = 22464
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+VITE_SPENDER_PRIVATE_KEY = "0xbc1ea4de08037ba5101b2cfdd59adcd1f24309ca744b2748e88e517486f6c7ff"
+VITE_STUDIO_CONTRACT = "0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac"
