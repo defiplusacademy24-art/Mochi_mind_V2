@@ -224,7 +224,14 @@ function Index() {
           <p className="text-center">A GenLayer-inspired Human vs AI visual reasoning experience.</p>
           <p>
             Built with <span aria-label="purple heart">💜</span> by{" "}
-            <span className="font-bold text-primary">RitaCryptoTips</span>
+            <a
+              href="https://x.com/RitaCryptoTips"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-primary hover:underline underline-offset-2 transition-colors hover:text-primary/80"
+            >
+              RitaCryptoTips
+            </a>
           </p>
         </div>
       </footer>
