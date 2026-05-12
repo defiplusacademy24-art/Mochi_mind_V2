@@ -618,7 +618,7 @@ function ValidatorPanel({
           </div>
           {txHash && (
             <a
-              href={`https://studio.genlayer.com/transactions/${txHash}`}
+              href={`https://explorer-studio.genlayer.com/tx/${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 mt-0.5 text-[9px] text-accent font-bold hover:underline underline-offset-2 transition-colors truncate"
