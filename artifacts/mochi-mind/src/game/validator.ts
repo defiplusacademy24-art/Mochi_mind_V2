@@ -33,6 +33,7 @@ export type ValidatorPick = {
   source: "onchain" | "local-consensus";
   reasoning?: string;
   validators?: Array<{ name: string; colors: string[]; confidence: number }>;
+  txHash?: string;
 };
 
 // ─── Local Consensus Fallback ─────────────────────────────────────────────────
@@ -206,6 +207,7 @@ async function validatorAnalyzeOnChain(stage: Stage): Promise<ValidatorPick> {
     scores: dominance_scores,
     source: "onchain",
     reasoning,
+    txHash: String(txHash),
   };
 }
 

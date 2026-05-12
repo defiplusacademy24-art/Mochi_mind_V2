@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@tanstack/react-router";
 import mochi from "@/assets/mochi.png";
 import logo from "@/assets/logo.jpg";
-import { Eye, Sparkles, Brain, Zap, ArrowRight, Play } from "lucide-react";
+import { Eye, Sparkles, Brain, Zap, ArrowRight, Play, Trophy } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -49,6 +49,9 @@ function Index() {
           <div className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
             <a href="#how" className="hover:text-foreground transition">How it works</a>
             <a href="#genlayer" className="hover:text-foreground transition">GenLayer</a>
+            <Link to="/leaderboard" className="hover:text-foreground transition flex items-center gap-1.5">
+              <Trophy className="size-3.5" /> Leaderboard
+            </Link>
           </div>
           <Button variant="hero" size="sm" className="rounded-full px-5" asChild>
             <Link to="/play">Play Now</Link>

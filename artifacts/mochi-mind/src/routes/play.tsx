@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
-  ArrowRight, Brain, Check, Clock, Lock, RotateCcw,
+  ArrowRight, Brain, Check, Clock, ExternalLink, Lock, Play, RotateCcw,
   Sparkles, Trophy, Wifi, Zap,
 } from "lucide-react";
 import { STAGES, TURN_SECONDS, type Stage } from "@/game/stages";
@@ -22,8 +22,31 @@ export const Route = createFileRoute("/play")({
 
 type Phase = "playing" | "revealing" | "result" | "endgame";
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+
+async function submitScore(username: string, score: number, total: number) {
+  try {
+    await fetch(`${API_BASE}/api/leaderboard`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, score, total }),
+    });
+  } catch {
+    // silent — leaderboard submission is best-effort
+  }
+}
+
 function PlayPage() {
   const navigate = useNavigate();
+
+  // Discord username gate — shown before first game
+  const [discordUsername, setDiscordUsername] = useState<string>(
+    () => localStorage.getItem("mochimind_discord") ?? "",
+  );
+  const [showUsernameModal, setShowUsernameModal] = useState<boolean>(
+    () => !localStorage.getItem("mochimind_discord"),
+  );
+
   const [stageIdx, setStageIdx] = useState(0);
   const [phase, setPhase] = useState<Phase>("playing");
   const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
@@ -32,6 +55,7 @@ function PlayPage() {
   const [validatorPicks, setValidatorPicks] = useState<[string, string] | null>(null);
   const [validatorFetchMs, setValidatorFetchMs] = useState<number | null>(null);
   const [validatorSource, setValidatorSource] = useState<"onchain" | "local-consensus" | null>(null);
+  const [validatorTxHash, setValidatorTxHash] = useState<string | null>(null);
   const [playerScore, setPlayerScore] = useState(0);
   const [validatorScore, setValidatorScore] = useState(0);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
@@ -51,6 +75,7 @@ function PlayPage() {
     setValidatorPicks(null);
     setValidatorFetchMs(null);
     setValidatorSource(null);
+    setValidatorTxHash(null);
     setRoundResult(null);
     setRevealFlash(false);
     setConsensusElapsed(0);
@@ -129,6 +154,7 @@ function PlayPage() {
     setValidatorPicks(v.picks);
     setValidatorFetchMs(elapsed);
     setValidatorSource(v.source);
+    if (v.txHash) setValidatorTxHash(v.txHash);
 
     // Brief pause so the validator chips animate in before result cards flip
     window.setTimeout(() => {
@@ -164,8 +190,10 @@ function PlayPage() {
         playerScore={playerScore}
         validatorScore={validatorScore}
         total={total}
+        discordUsername={discordUsername}
         onRestart={restart}
         onHome={() => navigate({ to: "/" })}
+        onLeaderboard={() => navigate({ to: "/leaderboard" })}
       />
     );
   }
@@ -175,6 +203,16 @@ function PlayPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      {/* Discord username gate */}
+      {showUsernameModal && (
+        <DiscordModal
+          onConfirm={(name) => {
+            setDiscordUsername(name);
+            setShowUsernameModal(false);
+          }}
+        />
+      )}
+
       {/* Flash overlay on reveal */}
       <AnimatePresence>
         {revealFlash && (
@@ -198,11 +236,11 @@ function PlayPage() {
             <span className="font-bold tracking-tight text-sm hidden sm:inline">MochiMind</span>
           </Link>
 
-          {/* Stage progress (mobile: centre; desktop: left-aligned) */}
+          {/* Stage progress */}
           <div className="flex-1 min-w-0 mx-2">
             <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-1">
               <span className="shrink-0">Stage {String(stage.id).padStart(2, "0")}/{total}</span>
-              <span className="truncate max-w-[120px] sm:max-w-none text-right">{stage.name}</span>
+              <span className="hidden sm:block truncate max-w-[160px] text-right">{stage.name}</span>
             </div>
             <Progress value={((stage.id - 1) / total) * 100} className="h-1" />
           </div>
@@ -384,6 +422,7 @@ function PlayPage() {
             source={validatorSource}
             quote={stage.quote}
             consensusElapsed={consensusElapsed}
+            txHash={validatorTxHash}
           />
         </aside>
       </div>
@@ -553,7 +592,7 @@ function MochiArtCard({ stage, blurred }: { stage: Stage; blurred: boolean }) {
 // ─── Validator Panel ──────────────────────────────────────────────────────────
 
 function ValidatorPanel({
-  phase, picks, correct, result, playerPicks, fetchMs, source, quote, consensusElapsed,
+  phase, picks, correct, result, playerPicks, fetchMs, source, quote, consensusElapsed, txHash,
 }: {
   phase: Phase;
   picks: [string, string] | null;
@@ -564,6 +603,7 @@ function ValidatorPanel({
   source: "onchain" | "local-consensus" | null;
   quote?: string;
   consensusElapsed: number;
+  txHash: string | null;
 }) {
   return (
     <div className="rounded-2xl sm:rounded-3xl bg-card border-[3px] border-[color:var(--primary-deep)] shadow-card-chunky p-4 sm:p-5 lg:sticky lg:top-[88px]">
@@ -571,11 +611,23 @@ function ValidatorPanel({
         <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-primary border-2 border-[color:var(--primary-deep)] grid place-items-center shrink-0">
           <Brain className="size-4 sm:size-5 text-primary-foreground" strokeWidth={2.5} />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="text-sm font-extrabold">Validator AI</div>
           <div className="text-[9px] sm:text-[10px] uppercase tracking-[0.2em] text-primary font-bold whitespace-nowrap">
             GenLayer Studio · On-Chain
           </div>
+          {txHash && (
+            <a
+              href={`https://studio.genlayer.com/transactions/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 mt-0.5 text-[9px] text-accent font-bold hover:underline underline-offset-2 transition-colors truncate"
+              title={txHash}
+            >
+              <ExternalLink className="size-2.5 shrink-0" />
+              <span className="truncate">Tx: {txHash.slice(0, 10)}…{txHash.slice(-6)}</span>
+            </a>
+          )}
         </div>
       </div>
 
@@ -699,15 +751,26 @@ function Row({ label, colors, correct, highlight = false }: {
 // ─── Endgame Screen ───────────────────────────────────────────────────────────
 
 function EndgameScreen({
-  playerScore, validatorScore, total, onRestart, onHome,
+  playerScore, validatorScore, total, discordUsername, onRestart, onHome, onLeaderboard,
 }: {
   playerScore: number;
   validatorScore: number;
   total: number;
+  discordUsername: string;
   onRestart: () => void;
   onHome: () => void;
+  onLeaderboard: () => void;
 }) {
   const title = endgameTitle(playerScore, validatorScore, total);
+
+  // Submit score once on mount
+  useEffect(() => {
+    if (discordUsername) {
+      void submitScore(discordUsername, playerScore, total);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <main className="min-h-screen bg-background text-foreground grid place-items-center px-4 py-16 sm:py-20">
       <div className="absolute inset-0 -z-10 overflow-hidden">
@@ -743,15 +806,88 @@ function EndgameScreen({
           ))}
         </div>
 
-        <div className="flex flex-col sm:flex-row justify-center gap-3">
-          <Button variant="hero" size="lg" className="rounded-full w-full sm:w-auto" onClick={onRestart}>
-            <RotateCcw className="size-4" /> Play Again
+        {discordUsername && (
+          <div className="mb-4 sm:mb-6 rounded-xl border-2 border-[color:var(--primary-deep)]/30 bg-secondary px-4 py-2.5 text-xs text-center text-muted-foreground">
+            Score submitted to leaderboard as <span className="font-extrabold text-primary">{discordUsername}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3">
+          <Button variant="hero" size="lg" className="rounded-full w-full" onClick={onLeaderboard}>
+            <Trophy className="size-4" /> View Leaderboard
           </Button>
-          <Button variant="glass" size="lg" className="rounded-full w-full sm:w-auto" onClick={onHome}>
-            Home
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button variant="glass" size="lg" className="rounded-full w-full sm:w-auto flex-1" onClick={onRestart}>
+              <RotateCcw className="size-4" /> Play Again
+            </Button>
+            <Button variant="glass" size="lg" className="rounded-full w-full sm:w-auto flex-1" onClick={onHome}>
+              Home
+            </Button>
+          </div>
         </div>
       </motion.div>
     </main>
+  );
+}
+
+// ─── Discord Username Modal ────────────────────────────────────────────────────
+
+function DiscordModal({ onConfirm }: { onConfirm: (username: string) => void }) {
+  const [value, setValue] = useState(localStorage.getItem("mochimind_discord") ?? "");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    localStorage.setItem("mochimind_discord", trimmed);
+    onConfirm(trimmed);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-background/80 backdrop-blur-xl flex items-center justify-center px-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 24 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 20 }}
+        className="w-full max-w-sm bg-card border-[3px] border-[color:var(--primary-deep)] rounded-3xl p-6 sm:p-8 shadow-card-chunky"
+      >
+        <div className="text-center mb-6">
+          <div className="mx-auto h-14 w-14 rounded-2xl bg-primary border-[3px] border-[color:var(--primary-deep)] grid place-items-center shadow-chunky-sm mb-4">
+            <img src={logo} alt="MochiMind" className="h-8 w-8 rounded-lg object-cover" />
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight mb-1">Ready to play?</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Enter your Discord username to appear on the <span className="font-bold text-primary">global leaderboard</span> after completing all 20 stages.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="e.g. RitaCryptoTips"
+            maxLength={32}
+            autoFocus
+            className="w-full rounded-xl border-[3px] border-[color:var(--primary-deep)]/40 bg-secondary px-4 py-3 text-sm font-bold placeholder:font-normal placeholder:text-muted-foreground focus:outline-none focus:border-[color:var(--primary-deep)] transition-colors"
+          />
+          <Button
+            type="submit"
+            variant="hero"
+            className="w-full rounded-full"
+            disabled={!value.trim()}
+          >
+            <Play className="size-4" /> Start Game
+          </Button>
+          <button
+            type="button"
+            onClick={() => onConfirm("Anonymous")}
+            className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            Skip — play without leaderboard
+          </button>
+        </form>
+      </motion.div>
+    </div>
   );
 }
