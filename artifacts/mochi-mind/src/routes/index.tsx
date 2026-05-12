@@ -69,10 +69,10 @@ function Index() {
               <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
               GenLayer-inspired · Human vs AI
             </div>
-            <h1 className="text-6xl md:text-7xl lg:text-8xl font-black tracking-tight leading-[0.95] mb-6">
+            <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tight leading-[0.95] mb-6">
               Mochi<span className="text-gradient">Mind</span>
             </h1>
-            <p className="text-xl md:text-2xl text-foreground/90 mb-4 font-light">
+            <p className="text-lg sm:text-xl md:text-2xl text-foreground/90 mb-4 font-light">
               Can you recognize Mochi's true colors better than Validator AI?
             </p>
             <p className="text-base text-muted-foreground max-w-xl mb-10 leading-relaxed">

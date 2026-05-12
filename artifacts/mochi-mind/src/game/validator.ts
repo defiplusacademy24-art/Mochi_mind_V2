@@ -1,6 +1,6 @@
 // MochiMind — Validator AI powered by GenLayer Studio on-chain AI.
 //
-// Contract: 0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac (GenLayer Studio)
+// Contract: 0x2Ce9ec4668DA02893D6B6bB5128c77Ef3c40B7ee (GenLayer Studio)
 //
 // WHY writeContract, not readContract:
 //   select_dominant_colors() calls gl.nondet.exec_prompt() internally.
@@ -21,7 +21,7 @@ import type { Stage } from "./stages";
 
 export const VALIDATOR_CONTRACT_ADDRESS: Address =
   (import.meta.env.VITE_STUDIO_CONTRACT as Address | undefined) ??
-  "0x072a5f7B8D4ea7A4F876ebf89777B3dA0E64a5Ac";
+  "0x2Ce9ec4668DA02893D6B6bB5128c77Ef3c40B7ee";
 
 const SPENDER_PK = import.meta.env.VITE_SPENDER_PRIVATE_KEY as
   | `0x${string}`
